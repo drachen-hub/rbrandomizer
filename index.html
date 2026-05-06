@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>R&B New Lands Exploration</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #1a1a1a; color: #ecf0f1; display: flex; flex-direction: column; align-items: center; padding: 20px; user-select: none; }
+        .container { background-color: #2c3e50; padding: 1.5rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 600px; width: 100%; text-align: center; }
+        
+        #canvas-container { margin: 20px 0; background: rgba(0,0,0,0.2); border-radius: 8px; display: flex; justify-content: center; align-items: center; min-height: 190px; border: 2px dashed rgba(255,255,255,0.1); }
+        canvas { filter: drop-shadow(0 5px 15px rgba(0,0,0,0.5)); }
+
+        #draw-btn { background-color: #27ae60; color: white; border: none; padding: 16px; font-size: 1.2rem; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; }
+
+        #redraw-btn {
+            background-color: #c0392b; color: white; border: none; padding: 10px; font-size: 0.9rem; border-radius: 6px; 
+            cursor: pointer; width: 60%; font-weight: bold; margin-top: 10px; position: relative; overflow: hidden;
+        }
+        #redraw-btn:disabled { background-color: #7f8c8d; cursor: not-allowed; opacity: 0.6; }
+
+        #redraw-progress { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: rgba(255,255,255,0.3); transition: width linear; }
+
+        @media (hover: hover) {
+            #draw-btn:hover { background-color: #2ecc71; }
+            #redraw-btn:hover { background-color: #e74c3c; }
+        }
+
+        .tile-grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 20px 0; max-height: 260px; overflow-y: auto; padding-right: 5px; }
+        .tile-row { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; }
+        .tile-info { display: flex; align-items: center; gap: 8px; }
+        
+        /* Hidden but code preserved */
+        .swatch { 
+            display: none;
+            width: 32px; height: 32px; border-radius: 4px; border: 1px solid #fff; 
+            flex-shrink: 0; position: relative; align-items: center; justify-content: center; 
+            overflow: hidden;
+        }
+      
+		.tile-thumb {
+			flex-shrink: 0;
+			border-radius: 3px;
+			display: block;
+			margin-left: -4px;
+		}
+
+        .s-woods { background: #228b22; } .s-pasture { background: #c0df3e; } .s-rock { background: #808080; } .s-mountains { background: #a52a2a; }
+        .s-desert { background: #f4d03f; } .s-sea { background: #2e86de; } .s-city { background: #ecf0f1; }
+        .s-polder { background: repeating-linear-gradient(45deg, #2e86de, #2e86de 5px, #228b22 5px, #228b22 10px); }
+
+        .has-river::after {
+            content: "≈"; position: absolute; font-size: 24px; color: #00d2ff;
+            font-weight: bold; text-shadow: 1px 1px 2px #000, -1px -1px 2px #000;
+            z-index: 20; pointer-events: none; top: 50%; left: 50%; transform: translate(-50%, -55%);
+        }
+
+        .controls { display: flex; gap: 6px; align-items: center; }
+        .btn-small {
+            background: #7f8c8d; border: none; color: white;
+            padding: 10px 14px; border-radius: 4px; cursor: pointer;
+            font-size: 1rem; min-width: 36px; min-height: 36px;
+        }
+        .icon-canvas { display: block; }
+
+        .confirm-bar {
+            display: none;
+            margin-top: 0;
+            padding: 0;
+            background: none;
+            border: none;
+            border-radius: 4px;
+            gap: 8px;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.78rem;
+        }
+        .confirm-bar.visible { display: inline-flex; }
+        .confirm-bar button {
+            padding: 8px 14px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.78rem;
+            min-height: unset;
+        }
+        .confirm-yes { background: #e74c3c; color: white; }
+        .confirm-no { background: #7f8c8d; color: white; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2 id="tile-title" style="margin:0; color:#f1c40f;">READY TO EXPLORE</h2>
+        <div id="canvas-container"><canvas id="tileCanvas" width="200" height="175"></canvas></div>
+        
+        <button id="draw-btn" onclick="drawTile()">DRAW STARTING TILE</button>
+        <button id="redraw-btn" disabled>
+            <div id="redraw-progress"></div>
+            REDRAW (HOLD)
+        </button>
+        
+        <p id="total-count" style="font-size: 0.8rem; color: #bdc3c7; margin: 10px 0 0 0;">
+            <span id="pool-count"># of Tiles in Pool: 184</span>
+            <span style="color: #7f8c8d; margin: 0 8px;">|</span>
+            <span id="play-count"># of Tiles in Play: 0</span>
+        </p>
+        <div class="tile-grid" id="inventory"></div>
+        <button id="reset-btn" style="background:none; border:1px solid #e74c3c; color:#e74c3c; padding:8px 16px; cursor:pointer; font-size:0.78rem; border-radius:4px;" onclick="showResetConfirm()">RESET</button>
+        <div id="confirm-bar" class="confirm-bar">
+            <button class="confirm-yes" onclick="confirmReset()">Yes, Reset</button>
+            <button class="confirm-no" onclick="hideResetConfirm()">Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        const colors = { woods: '#228b22', pasture: '#c0df3e', rock: '#8a8a8a', mountains: '#a52a2a', desert: '#f4d03f', sea: '#2e86de', polder: 'STRIPE', city: '#ecf0f1' };
+        const towerColors = ['#c0392b', '#2980b9', '#f1c40f', '#2c3e50', '#27ae60', '#7f8c8d']; 
+
+        const TILE_W = 200, TILE_H = 175;
+        const CX = 100, CY = 88;
+        const THUMB_W = 40, THUMB_H = 35;
+
+        function hexVertex(cx, cy, size, i) {
+            const angle = i * Math.PI / 3;
+            return { x: cx + size * Math.cos(angle), y: cy + size * Math.sin(angle) };
+        }
+        function drawHexPath(ctx, cx, cy, size) {
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const v = hexVertex(cx, cy, size, i);
+                ctx.lineTo(v.x, v.y);
+            }
+            ctx.closePath();
+        }
+
+        const manifest = [
+            { name: 'Woods (Plain)', count: 16, type: 'woods', paths: [] },
+            { name: 'Woods (Straight)', count: 3, type: 'woods', paths: [[1,4]] },
+            { name: 'Woods (Gentle Curve)', count: 3, type: 'woods', paths: [[2,4]] },
+            { name: 'Woods (Sharp Curve)', count: 1, type: 'woods', paths: [[3,4]] },
+            { name: 'Woods (Sharp & Gentle A)', count: 1, type: 'woods', paths: [[1,2], [4,6]] },
+            { name: 'Woods (Sharp & Gentle B)', count: 1, type: 'woods', paths: [[2,3], [4,6]] },
+            { name: 'Woods (Double Sharp)', count: 1, type: 'woods', paths: [[2,3], [5,6]] },
+            { name: 'Pasture (Plain)', count: 22, type: 'pasture', paths: [] },
+            { name: 'Pasture (Straight)', count: 6, type: 'pasture', paths: [[1,4]] },
+            { name: 'Pasture (Gentle Curve)', count: 3, type: 'pasture', paths: [[2,4]] },
+            { name: 'Pasture (Sharp Curve)', count: 3, type: 'pasture', paths: [[3,4]] },
+            { name: 'Pasture (3-Way A)', count: 1, type: 'pasture', paths: [[2,0], [4,0], [6,0]] },
+            { name: 'Pasture (3-Way B)', count: 1, type: 'pasture', paths: [[1,0], [2,0], [4,0]] },
+            { name: 'Pasture (3-Way C)', count: 1, type: 'pasture', paths: [[6,0], [1,0], [4,0]] },
+            { name: 'Rock (Plain)', count: 15, type: 'rock', paths: [] },
+            { name: 'Rock (Straight)', count: 1, type: 'rock', paths: [[1,4]] },
+            { name: 'Rock (Gentle Curve)', count: 2, type: 'rock', paths: [[2,4]] },
+            { name: 'Rock (Sharp Curve)', count: 1, type: 'rock', paths: [[3,4]] },
+            { name: 'Mountains (Plain)', count: 17, type: 'mountains', paths: [] },
+            { name: 'Mountains (River Source)', count: 4, type: 'mountains', paths: [[1,0]] },			
+            { name: 'Desert (Plain)', count: 22, type: 'desert', paths: [] },
+            { name: 'Desert (Gentle Curve)', count: 2, type: 'desert', paths: [[2,4]] },
+            { name: 'Desert (Sharp Curve)', count: 1, type: 'desert', paths: [[3,4]] },
+            { name: 'Sea', count: 29, type: 'sea', paths: [] },
+            { name: 'Polder', count: 21, type: 'polder', paths: [] },
+            { name: 'City', count: 6, type: 'city', paths: [] }
+        ];
+
+        const FULL_TOTAL = 184;
+        let pool = JSON.parse(localStorage.getItem('rbVisualPoolV50')) || JSON.parse(JSON.stringify(manifest));
+        let lastTileIdx = localStorage.getItem('rbLastTileIdxV50') || null;
+        let tilesInPlay = parseInt(localStorage.getItem('rbTilesInPlayV50')) || 0;
+        let currentSeed = Math.random();
+
+        // Re-sort pool to match new manifest order on load
+        (function resortPool() {
+            const nameOrder = manifest.map(m => m.name);
+            const poolMap = {};
+            pool.forEach(item => { poolMap[item.name] = item; });
+            const newPool = [];
+            nameOrder.forEach(name => {
+                if (poolMap[name]) newPool.push(poolMap[name]);
+            });
+            // Add any items in pool not in manifest (shouldn't happen, but safe)
+            pool.forEach(item => { if (!nameOrder.includes(item.name)) newPool.push(item); });
+            pool = newPool;
+        })();
+
+        function seededRandom(seed) { const x = Math.sin(seed++) * 10000; return x - Math.floor(x); }
+
+        function computeAllRiverPoints(tile, size) {
+            if (!tile || tile.paths.length === 0) return [];
+            const allPts = [];
+            const is3Way = tile.paths.length === 3 && tile.paths.every(p => p[1] === 0);
+            if (is3Way) {
+                let sides, fork;
+                if (tile.name === 'Pasture (3-Way A)') { sides = [2, 4, 6]; fork = {x: CX, y: CY}; }
+                else if (tile.name === 'Pasture (3-Way B)') { sides = [1, 2, 4]; fork = {x: CX + 8, y: CY + 2}; }
+                else if (tile.name === 'Pasture (3-Way C)') { sides = [6, 1, 4]; fork = {x: CX + 2, y: CY - 2}; }
+                const edges = sides.map(s => getSideCoord(size, s));
+                const phases = [0, 2.2, 4.7];
+                edges.forEach((edge, idx) => { allPts.push(...computeWavyPoints(edge, fork, fork, true, phases[idx], 0.35)); });
+            } else {
+                tile.paths.forEach(p => {
+                    const start = getSideCoord(size, p[0]);
+                    const end = (p[1] === 0) ? {x: CX, y: CY} : getSideCoord(size, p[1]);
+                    const center = {x: CX, y: CY};
+                    const isStraight = (p[1] === 0 || Math.abs(p[0] - p[1]) === 3);
+                    let cp;
+                    if (isStraight) { cp = center; }
+                    else {
+                        const mx = (start.x + end.x) / 2; const my = (start.y + end.y) / 2;
+                        const diff = Math.abs(p[0] - p[1]);
+                        const isSharp = (diff === 1 || diff === 5);
+                        const pull = isSharp ? 1.1 : 1.5;
+                        cp = { x: mx + (center.x - mx) * pull, y: my + (center.y - my) * pull };
+                    }
+                    const diff2 = Math.abs(p[0] - p[1]);
+                    const isSharpCurve = (diff2 === 1 || diff2 === 5);
+                    allPts.push(...computeWavyPoints(start, end, cp, isStraight, isSharpCurve ? 3.5 : 0));
+                });
+            }
+            return allPts;
+        }
+
+        function isNearRiver(x, y, riverPts, minDist) {
+            if (!riverPts || riverPts.length === 0) return false;
+            const md2 = minDist * minDist;
+            for (const pt of riverPts) { const dx = x - pt.x, dy = y - pt.y; if (dx * dx + dy * dy < md2) return true; }
+            return false;
+        }
+
+        function drawRuggedRock(ctx, x, y, size, localSeed, flatBottom = false) {
+            ctx.beginPath(); const vertices = 7;
+            for (let i = 0; i <= vertices; i++) {
+                const angle = (i / vertices) * (flatBottom ? Math.PI : Math.PI * 2);
+                const jitter = (seededRandom(localSeed + i) - 0.5) * (size * 0.4);
+                const rx = x + (size + jitter) * Math.cos(angle - (flatBottom ? Math.PI : 0));
+                const ry = y + (size + jitter) * Math.sin(angle - (flatBottom ? Math.PI : 0));
+                if (i === 0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry);
+            }
+            if (flatBottom) ctx.closePath();
+            ctx.fillStyle = '#7a7a7a'; ctx.fill(); ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.stroke();
+        }
+
+        function drawStaticSixRockPile(ctx, x, y, scale = 1.0) {
+            const s = 6 * scale; const seed = 42; 
+            drawRuggedRock(ctx, x-(s*1.3), y+(s*0.3), s*0.9, seed+1, true); drawRuggedRock(ctx, x+(s*1.3), y+(s*0.3), s*0.8, seed+2, true);
+            drawRuggedRock(ctx, x, y+(s*0.5), s, seed+3, true); drawRuggedRock(ctx, x-(s*0.6), y-(s*0.3), s*0.75, seed+4, false);
+            drawRuggedRock(ctx, x+(s*0.6), y-(s*0.4), s*0.7, seed+5, false); drawRuggedRock(ctx, x, y-(s*1.1), s*0.6, seed+6, false);
+        }
+
+        function drawScatteredRockPiles(ctx, centerX, centerY, riverPts) {
+            const spacing = 40; const jitterAmount = 18; let localSeed = currentSeed + 99;
+            for (let x = centerX - 85; x <= centerX + 85; x += spacing) {
+                for (let y = centerY - 85; y <= centerY + 85; y += spacing) {
+                    if (seededRandom(localSeed++) > 0.75) continue;
+                    const finalX = x + (seededRandom(localSeed++) - 0.5) * jitterAmount;
+                    const finalY = y + (seededRandom(localSeed++) - 0.5) * jitterAmount;
+                    if (isNearRiver(finalX, finalY, riverPts, 18)) continue;
+                    drawStaticSixRockPile(ctx, finalX, finalY, 0.9);
+                }
+            }
+        }
+
+        function drawPeakV(ctx, px, py, width, height) {
+            ctx.beginPath(); ctx.moveTo(px-width/2, py+height/2); ctx.lineTo(px, py-height/2); ctx.lineTo(px+width/2, py+height/2);
+            ctx.fillStyle = colors.mountains; ctx.fill(); ctx.stroke();
+            ctx.strokeStyle = colors.mountains; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(px-(width/2)+0.5, py+height/2); ctx.lineTo(px+(width/2)-0.5, py+height/2); ctx.stroke();
+            ctx.strokeStyle = '#000000'; ctx.lineWidth = 1.8;
+        }
+
+        function drawMountains(ctx, centerX, centerY, riverPts) {
+            let localSeed = currentSeed + 123;
+            const grid = [{gx:0,gy:0},{gx:1,gy:0},{gx:2,gy:0},{gx:0,gy:1},{gx:1,gy:1},{gx:2,gy:1},{gx:0,gy:2},{gx:1,gy:2},{gx:2,gy:2}];
+            const gridWidth = 120; const gridHeight = 120;
+            const startX = centerX - gridWidth/2; const startY = centerY - gridHeight/2;
+            ctx.strokeStyle = '#000000'; ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            grid.sort(() => seededRandom(localSeed++) - 0.5); let count = 0;
+            grid.forEach(point => {
+                if (count >= 9) return;
+                if (seededRandom(localSeed++) > 0.10) {
+                    const cx = startX + (point.gx*(gridWidth/2)) + (seededRandom(localSeed++)-0.5)*15;
+                    const cy = startY + (point.gy*(gridHeight/2)) + (seededRandom(localSeed++)-0.5)*15;
+                    if (isNearRiver(cx, cy, riverPts, 22)) return;
+                    drawPeakV(ctx, cx-18, cy+5, 8, 9); drawPeakV(ctx, cx-10, cy+3, 12, 14);
+                    drawPeakV(ctx, cx+10, cy+5, 8, 10); drawPeakV(ctx, cx, cy, 16, 20); count++;
+                }
+            });
+        }
+
+        function drawTrees(ctx, centerX, centerY, riverPts) {
+            const spacing = 26; let localSeed = currentSeed;
+            for (let x = centerX-90; x <= centerX+90; x += spacing) {
+                for (let y = centerY-90; y <= centerY+90; y += spacing) {
+                    const fx = x + (Math.sin(localSeed++)*14); const fy = y + (Math.cos(localSeed++)*14);
+                    if (isNearRiver(fx, fy, riverPts, 14)) continue;
+                    ctx.fillStyle = '#5d4037'; ctx.fillRect(fx-1.5, fy+6, 3, 4);
+                    ctx.fillStyle = '#0a4d0a'; ctx.beginPath(); ctx.moveTo(fx-5, fy+6); ctx.lineTo(fx+5, fy+6); ctx.lineTo(fx, fy-6); ctx.fill();
+                }
+            }
+        }
+
+        function drawGrass(ctx, centerX, centerY, isCity = false, riverPts) {
+            let localSeed = currentSeed + 250; const spacing = 32; const maxRadius = isCity ? 35 : 90;
+            for (let x = centerX-90; x <= centerX+90; x += spacing) {
+                for (let y = centerY-90; y <= centerY+90; y += spacing) {
+                    if (seededRandom(localSeed++) > 0.55) continue;
+                    const fx = x + (Math.sin(localSeed++)*20); const fy = y + (Math.cos(localSeed++)*20);
+                    const dist = Math.sqrt((fx-centerX)**2 + (fy-centerY)**2);
+                    if (isCity && dist > maxRadius) continue;
+                    if (isNearRiver(fx, fy, riverPts, 12)) continue;
+                    ctx.strokeStyle = '#4a7c00'; ctx.lineWidth = 1.4; ctx.beginPath();
+                    ctx.moveTo(fx, fy+3); ctx.quadraticCurveTo(fx-0.5, fy-4, fx-6, fy-6);
+                    ctx.moveTo(fx, fy+3); ctx.lineTo(fx, fy-9);
+                    ctx.moveTo(fx, fy+3); ctx.quadraticCurveTo(fx+0.5, fy-4, fx+6, fy-6); ctx.stroke();
+                }
+            }
+        }
+
+        function drawCity(ctx, cx, cy, sizeScale = 1.0, isTile = false, riverPts) {
+            const wallRadius = 55*sizeScale; const towerRadius = 8*sizeScale;
+            drawHexPath(ctx, cx, cy, wallRadius); ctx.fillStyle = colors.pasture; ctx.fill();
+            if (isTile) drawGrass(ctx, cx, cy, true, riverPts);
+            drawHexPath(ctx, cx, cy, wallRadius); ctx.strokeStyle = '#555'; ctx.lineWidth = 4*sizeScale; ctx.stroke();
+            for (let i = 0; i < 6; i++) {
+                const v = hexVertex(cx, cy, wallRadius, i);
+                ctx.beginPath(); ctx.arc(v.x, v.y, towerRadius, 0, Math.PI*2); ctx.fillStyle = '#95a5a6'; ctx.fill();
+                ctx.strokeStyle = '#2c3e50'; ctx.lineWidth = 1.5*sizeScale; ctx.stroke();
+                ctx.beginPath(); ctx.arc(v.x, v.y, towerRadius*0.65, 0, Math.PI*2); ctx.fillStyle = towerColors[i]; ctx.fill();
+                ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1*sizeScale; ctx.stroke();
+            }
+        }
+
+        function drawSingleDetailedCactus(ctx, cx, cy, scale = 1.0) {
+            ctx.fillStyle = '#2d5a27';
+            ctx.fillRect(cx-(2*scale), cy-(9.5*scale), 4*scale, 16.5*scale); 
+            ctx.fillRect(cx-(4.5*scale), cy+(1*scale), 2.5*scale, 2.5*scale); 
+            ctx.fillRect(cx-(6.5*scale), cy-(2.5*scale), 2.5*scale, 5*scale);
+            ctx.fillRect(cx+(2*scale), cy-(3*scale), 2.5*scale, 2.5*scale); 
+            ctx.fillRect(cx+(4.5*scale), cy-(6.5*scale), 2.5*scale, 5*scale);
+        }
+
+        function drawDesertCacti(ctx, centerX, centerY, riverPts) {
+            let localSeed = currentSeed + 500; const placedCacti = []; const minDistance = 22; 
+            for (let i = 0; i < 40; i++) {
+                const angle = seededRandom(localSeed++)*Math.PI*2; const dist = seededRandom(localSeed++)*70; 
+                const fx = centerX + Math.cos(angle)*dist; const fy = centerY + Math.sin(angle)*dist;
+                let tooClose = false;
+                for (const other of placedCacti) { if (Math.sqrt((fx-other.x)**2+(fy-other.y)**2) < minDistance) { tooClose = true; break; } }
+                if (tooClose) continue;
+                if (isNearRiver(fx, fy, riverPts, 14)) continue;
+                drawSingleDetailedCactus(ctx, fx, fy, 0.65); placedCacti.push({ x: fx, y: fy });
+                if (placedCacti.length >= 8) break;
+            }
+        }
+
+        function drawWaves(ctx, centerX, centerY, riverPts) {
+            let localSeed = currentSeed + 1000;
+            for (let x = centerX-95; x <= centerX+95; x += 32) {
+                for (let y = centerY-95; y <= centerY+95; y += 32) {
+                    if (seededRandom(localSeed++) > 0.7) continue; 
+                    const fx = x + (Math.sin(localSeed++)*14); const fy = y + (Math.cos(localSeed++)*14);
+                    if (isNearRiver(fx, fy, riverPts, 12)) continue;
+                    ctx.strokeStyle = '#004d99'; ctx.lineWidth = 2; ctx.beginPath();
+                    ctx.moveTo(fx-6, fy+3); ctx.quadraticCurveTo(fx-2, fy+2, fx, fy-3); ctx.quadraticCurveTo(fx+2, fy+2, fx+6, fy+3); ctx.stroke();
+                }
+            }
+        }
+
+        /* ===== SWATCH ICON FUNCTIONS (hidden but preserved) ===== */
+        function drawRockIcon(canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); drawStaticSixRockPile(ctx, canvas.width/2, canvas.height/2+4, 1.2); }
+        function drawMountainIcon(canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.strokeStyle='#000'; ctx.lineWidth=1.4; const cx=canvas.width/2,cy=canvas.height/2; drawPeakV(ctx,cx-7,cy+3,10,11); drawPeakV(ctx,cx+7,cy+3,10,11); drawPeakV(ctx,cx,cy,14,16); }
+        function drawTreeIcon(canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); const cx=canvas.width/2,cy=canvas.height/2; ctx.fillStyle='#5d4037'; ctx.fillRect(cx-2,cy+5,4,6); ctx.fillStyle='#0a4d0a'; ctx.beginPath(); ctx.moveTo(cx-10,cy+5); ctx.lineTo(cx+10,cy+5); ctx.lineTo(cx,cy-10); ctx.fill(); }
+        function drawGrassIcon(canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); const cx=canvas.width/2,cy=canvas.height/2+5; ctx.strokeStyle='#4a7c00'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx,cy-12); ctx.moveTo(cx,cy); ctx.quadraticCurveTo(cx-1,cy-5,cx-8,cy-8); ctx.moveTo(cx,cy); ctx.quadraticCurveTo(cx+1,cy-5,cx+8,cy-8); ctx.stroke(); }
+        function drawCactusIcon(canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); drawSingleDetailedCactus(ctx, canvas.width/2, canvas.height/2+1, 1.0); }
+        function drawWaveIcon(canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); const cx=canvas.width/2,cy=canvas.height/2; ctx.strokeStyle='#004d99'; ctx.lineWidth=3.5; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(cx-10,cy+4); ctx.quadraticCurveTo(cx-3,cy+2,cx,cy-4); ctx.quadraticCurveTo(cx+3,cy+2,cx+10,cy+4); ctx.stroke(); }
+        function drawCityIcon(canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); drawCity(ctx, canvas.width/2, canvas.height/2, 0.22, false); }
+
+        function getSideCoord(size, side, lerp = 0.5) {
+            const angle1 = (side+3)*Math.PI/3; const angle2 = (side+4)*Math.PI/3;
+            const x1 = CX + size*Math.cos(angle1); const y1 = CY + size*Math.sin(angle1);
+            const x2 = CX + size*Math.cos(angle2); const y2 = CY + size*Math.sin(angle2);
+            return { x: x1 + (x2-x1)*lerp, y: y1 + (y2-y1)*lerp };
+        }
+
+        function computeWavyPoints(start, end, cp, isStraight, phaseOffset, ampScale) {
+            phaseOffset = phaseOffset || 0; ampScale = ampScale !== undefined ? ampScale : 1.0;
+            const steps = 28; const points = [];
+            for (let i = 0; i <= steps; i++) {
+                const t = i/steps; let pt, tangent;
+                if (isStraight) {
+                    pt = { x: start.x+(end.x-start.x)*t, y: start.y+(end.y-start.y)*t };
+                    tangent = { x: end.x-start.x, y: end.y-start.y };
+                } else {
+                    const mt = 1-t;
+                    pt = { x: mt*mt*start.x+2*mt*t*cp.x+t*t*end.x, y: mt*mt*start.y+2*mt*t*cp.y+t*t*end.y };
+                    tangent = { x: 2*mt*(cp.x-start.x)+2*t*(end.x-cp.x), y: 2*mt*(cp.y-start.y)+2*t*(end.y-cp.y) };
+                }
+                const len = Math.sqrt(tangent.x*tangent.x+tangent.y*tangent.y);
+                if (len === 0) { points.push(pt); continue; }
+                const nx = -tangent.y/len; const ny = tangent.x/len;
+                const taper = Math.sin(t*Math.PI);
+                const wave = (Math.sin(t*11.0+0.8+phaseOffset)*5 + Math.sin(t*7.3+2.1+phaseOffset)*3)*ampScale;
+                points.push({ x: pt.x+nx*wave*taper, y: pt.y+ny*wave*taper });
+            }
+            return points;
+        }
+
+        function strokeWavyPoints(ctx, points) {
+            ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length-1; i++) {
+                const xc = (points[i].x+points[i+1].x)/2; const yc = (points[i].y+points[i+1].y)/2;
+                ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+            }
+            ctx.lineTo(points[points.length-1].x, points[points.length-1].y); ctx.stroke();
+        }
+
+        function draw3WayRiver(ctx, tileName, size) {
+            let sides, fork;
+            if (tileName === 'Pasture (3-Way A)') { sides = [2,4,6]; fork = {x:CX, y:CY}; }
+            else if (tileName === 'Pasture (3-Way B)') { sides = [1,2,4]; fork = {x:CX+8, y:CY+2}; }
+            else if (tileName === 'Pasture (3-Way C)') { sides = [6,1,4]; fork = {x:CX+2, y:CY-2}; }
+            const edges = sides.map(s => getSideCoord(size, s)); const phases = [0, 2.2, 4.7];
+            const allBranches = edges.map((edge, idx) => computeWavyPoints(edge, fork, fork, true, phases[idx], 0.35));
+            const offCanvas = document.createElement('canvas'); offCanvas.width = TILE_W; offCanvas.height = TILE_H;
+            const off = offCanvas.getContext('2d'); drawHexPath(off, CX, CY, size); off.clip();
+            off.lineCap = 'round'; off.lineJoin = 'round'; off.lineWidth = 12; off.strokeStyle = '#1e90ff';
+            allBranches.forEach(pts => strokeWavyPoints(off, pts));
+            const hlCanvas = document.createElement('canvas'); hlCanvas.width = TILE_W; hlCanvas.height = TILE_H;
+            const hl = hlCanvas.getContext('2d'); hl.lineCap = 'round'; hl.lineJoin = 'round'; hl.lineWidth = 4; hl.strokeStyle = '#ffffff';
+            allBranches.forEach(pts => strokeWavyPoints(hl, pts));
+            ctx.save(); drawHexPath(ctx, CX, CY, size); ctx.clip();
+            ctx.drawImage(offCanvas, 0, 0); ctx.globalAlpha = 0.4; ctx.drawImage(hlCanvas, 0, 0); ctx.globalAlpha = 1.0; ctx.restore();
+        }
+
+        function renderTileOnCanvas(tile, targetCanvas) {
+            const ctx = targetCanvas.getContext('2d');
+            ctx.clearRect(0, 0, TILE_W, TILE_H); if (!tile) return;
+            const size = 80; const riverPts = computeAllRiverPoints(tile, size);
+            ctx.save(); drawHexPath(ctx, CX, CY, size);
+            if (tile.type === 'polder') {
+                const pCanvas = document.createElement('canvas'); const pctx = pCanvas.getContext('2d');
+                pCanvas.width = 20; pCanvas.height = 20; pctx.fillStyle = '#228b22'; pctx.fillRect(0,0,20,20);
+                pctx.strokeStyle = '#2e86de'; pctx.lineWidth = 10; pctx.beginPath(); pctx.moveTo(0,0); pctx.lineTo(20,20); pctx.stroke();
+                ctx.fillStyle = ctx.createPattern(pCanvas, 'repeat');
+            } else if (tile.type === 'city') { ctx.fillStyle = colors.sea; } else { ctx.fillStyle = colors[tile.type]; }
+            ctx.fill(); ctx.save(); ctx.clip(); 
+            if (tile.type === 'woods') drawTrees(ctx, CX, CY, riverPts); 
+            if (tile.type === 'pasture') drawGrass(ctx, CX, CY, false, riverPts);
+            if (tile.type === 'desert') drawDesertCacti(ctx, CX, CY, riverPts);
+            if (tile.type === 'sea') drawWaves(ctx, CX, CY, riverPts);
+            if (tile.type === 'mountains') drawMountains(ctx, CX, CY, riverPts);
+            if (tile.type === 'rock') drawScatteredRockPiles(ctx, CX, CY, riverPts);
+            if (tile.type === 'city') drawCity(ctx, CX, CY, 1.0, true, riverPts);
+            ctx.restore();
+            const is3Way = tile.paths.length === 3 && tile.paths.every(p => p[1] === 0);
+            if (is3Way) { draw3WayRiver(ctx, tile.name, size); }
+            else {
+                tile.paths.forEach(p => {
+                    ctx.save(); drawHexPath(ctx, CX, CY, size); ctx.clip();
+                    const start = getSideCoord(size, p[0]);
+                    const end = (p[1] === 0) ? {x:CX, y:CY} : getSideCoord(size, p[1]);
+                    const center = {x:CX, y:CY};
+                    const isStraight = (p[1] === 0 || Math.abs(p[0]-p[1]) === 3);
+                    let cp;
+                    if (isStraight) { cp = center; }
+                    else {
+                        const mx = (start.x+end.x)/2; const my = (start.y+end.y)/2;
+                        const diff = Math.abs(p[0]-p[1]); const isSharp = (diff === 1 || diff === 5);
+                        const pull = isSharp ? 1.1 : 1.5;
+                        cp = { x: mx+(center.x-mx)*pull, y: my+(center.y-my)*pull };
+                    }
+                    const diff2 = Math.abs(p[0]-p[1]); const isSharpCurve = (diff2 === 1 || diff2 === 5);
+                    const wavyPts = computeWavyPoints(start, end, cp, isStraight, isSharpCurve ? 4 : 0, isSharpCurve ? 0.6 : 1.0);
+                    ctx.lineCap = "round"; ctx.lineWidth = 12; ctx.strokeStyle = '#1e90ff';
+                    strokeWavyPoints(ctx, wavyPts);
+                    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+                    strokeWavyPoints(ctx, wavyPts); ctx.restore();
+                });
+            }
+            ctx.restore(); drawHexPath(ctx, CX, CY, size); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+        }
+
+        function renderTile(tile) { renderTileOnCanvas(tile, document.getElementById('tileCanvas')); }
+
+        /* ===== THUMBNAIL CACHE (keyed by name for order independence) ===== */
+        const thumbnailCache = {};
+
+        function generateThumbnails() {
+            const savedSeed = currentSeed;
+            manifest.forEach((item, idx) => {
+                currentSeed = 0.42 + idx * 0.013;
+				if (item.type === 'mountains') currentSeed += 0.09;
+                const offscreen = document.createElement('canvas');
+                offscreen.width = TILE_W; offscreen.height = TILE_H;
+                renderTileOnCanvas(item, offscreen);
+                thumbnailCache[item.name] = offscreen;
+            });
+            currentSeed = savedSeed;
+        }
+
+        function getDeck(currentPool) { let deck = []; let total = 0; currentPool.forEach((item, index) => { total += item.count; for (let i = 0; i < item.count; i++) deck.push(index); }); return { deck, total }; }
+
+        function drawTile(isRedraw = false) {
+            const { deck, total } = getDeck(pool); if (deck.length === 0) return;
+            let isStartingTurn = (total === FULL_TOTAL || (isRedraw && total === FULL_TOTAL - 1));
+            let selectedIdx, selected;
+            while (true) { selectedIdx = deck[Math.floor(Math.random() * deck.length)]; selected = pool[selectedIdx]; if (isStartingTurn && (selected.type === 'sea' || selected.type === 'polder')) continue; break; }
+            if (isRedraw && lastTileIdx !== null) { pool[lastTileIdx].count++; }
+            pool[selectedIdx].count--; lastTileIdx = selectedIdx; currentSeed = Math.random();
+            if (!isRedraw) tilesInPlay++;
+            document.getElementById('tile-title').innerText = selected.name.toUpperCase();
+            renderTile(selected); updateUI();
+        }
+
+        function updateUI() {
+            const container = document.getElementById('inventory'); const drawBtn = document.getElementById('draw-btn'); const title = document.getElementById('tile-title');
+            const redrawBtn = document.getElementById('redraw-btn'); container.innerHTML = '';
+            let { total } = getDeck(pool);
+            pool.forEach((item, index) => {
+                const row = document.createElement('div'); row.className = 'tile-row';
+                const hasRiver = item.paths.length > 0;
+                let innerIcon = `<canvas class="icon-canvas" width="32" height="32"></canvas>`;
+                row.innerHTML = `<div class="tile-info">
+                    <div class="swatch s-${item.type} ${hasRiver ? 'has-river' : ''}">${innerIcon}</div>
+                    <canvas class="tile-thumb" width="${THUMB_W}" height="${THUMB_H}"></canvas>
+                    <span>${item.name}</span>
+                </div>
+                <div class="controls"><button class="btn-small" onclick="adjust(${index},-1)">-</button><span>${item.count}</span><button class="btn-small" onclick="adjust(${index},1)">+</button></div>`;
+                container.appendChild(row);
+
+                // Draw swatch icon (hidden but code preserved)
+                const iconCanvas = row.querySelector('.icon-canvas');
+                if (item.type === 'rock') drawRockIcon(iconCanvas);
+                else if (item.type === 'mountains') drawMountainIcon(iconCanvas);
+                else if (item.type === 'woods') drawTreeIcon(iconCanvas);
+                else if (item.type === 'pasture') drawGrassIcon(iconCanvas);
+                else if (item.type === 'desert') drawCactusIcon(iconCanvas);
+                else if (item.type === 'sea') drawWaveIcon(iconCanvas);
+                else if (item.type === 'city') drawCityIcon(iconCanvas);
+
+                // Draw tile thumbnail
+                const thumbCanvas = row.querySelector('.tile-thumb');
+                if (thumbnailCache[item.name]) {
+                    const tCtx = thumbCanvas.getContext('2d');
+                    tCtx.drawImage(thumbnailCache[item.name], 0, 0, TILE_W, TILE_H, 0, 0, THUMB_W, THUMB_H);
+                }
+            });
+            if (tilesInPlay === 0) { drawBtn.innerText = "DRAW STARTING TILE"; title.innerText = "READY TO EXPLORE"; renderTile(null); lastTileIdx = null;
+            } else { drawBtn.innerText = "EXPLORE NEXT TILE"; }
+            redrawBtn.disabled = (tilesInPlay === 0 || lastTileIdx === null);
+            document.getElementById('pool-count').innerText = `# of Tiles in Pool: ${total}`;
+            document.getElementById('play-count').innerText = `# of Tiles in Play: ${tilesInPlay}`;
+            localStorage.setItem('rbVisualPoolV50', JSON.stringify(pool));
+            localStorage.setItem('rbTilesInPlayV50', tilesInPlay);
+        }
+
+        function adjust(i, a) {
+            const gameStarted = tilesInPlay > 0;
+            pool[i].count = Math.max(0, pool[i].count + a);
+            if (gameStarted) { tilesInPlay -= a; if (tilesInPlay < 0) tilesInPlay = 0; }
+            lastTileIdx = null; updateUI();
+        }
+
+        function showResetConfirm() { document.getElementById('reset-btn').style.display = 'none'; document.getElementById('confirm-bar').classList.add('visible'); }
+        function hideResetConfirm() { document.getElementById('confirm-bar').classList.remove('visible'); document.getElementById('reset-btn').style.display = ''; }
+        function confirmReset() { pool = JSON.parse(JSON.stringify(manifest)); tilesInPlay = 0; hideResetConfirm(); updateUI(); }
+
+        let holdTimer, holdDuration = 1000;
+        const rbH = document.getElementById('redraw-btn'); const rp = document.getElementById('redraw-progress');
+        const cancelHold = () => { clearTimeout(holdTimer); rp.style.transitionDuration = '0s'; rp.style.width = '0%'; };
+        const startHold = () => { if (rbH.disabled) return; rp.style.transitionDuration = `${holdDuration}ms`; rp.style.width = '100%'; holdTimer = setTimeout(() => { cancelHold(); drawTile(true); }, holdDuration); };
+        rbH.addEventListener('mousedown', startHold);
+        rbH.addEventListener('mouseleave', cancelHold);
+        window.addEventListener('mouseup', cancelHold);
+        rbH.addEventListener('touchstart', (e) => { e.preventDefault(); startHold(); }, { passive: false });
+        rbH.addEventListener('touchend', cancelHold);
+        rbH.addEventListener('touchcancel', cancelHold);
+        rbH.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        generateThumbnails();
+        updateUI(); 
+        if (lastTileIdx !== null) { renderTile(pool[lastTileIdx]); document.getElementById('tile-title').innerText = pool[lastTileIdx].name.toUpperCase(); }
+    </script>
+</body>
+</html>
